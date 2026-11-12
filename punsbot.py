@@ -15,6 +15,22 @@ import uuid
 
 import telebot
 
+
+def load_dotenv(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")):
+    """Carga KEY=valor de .env (sin pisar variables ya definidas). Útil en hostings tipo Pterodactyl."""
+    if not os.path.isfile(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_dotenv()
+
 VERSION = "1.0.0"
 
 BOT_NAME = os.environ.get("BOT_NAME", "PunsBot")
