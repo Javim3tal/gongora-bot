@@ -1,0 +1,9 @@
+services:
+  punsbot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DBLOCATION: /data/punsdb.db   # dentro del contenedor; ignora el valor de .env
+    volumes:
+      - ./data:/data
