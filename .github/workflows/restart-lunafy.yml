@@ -1,0 +1,45 @@
+# Reinicia el servidor de Lunafy cuando entra un cambio en main (p. ej. al aceptar una PR).
+# Al reiniciar, start.py descarga la última versión de main y arranca el bot.
+#
+# Requiere el secreto LUNAFY_API_KEY (Settings → Secrets and variables → Actions)
+# con una API Key creada en https://panel.lunafy.run/profile → API Keys.
+name: Reiniciar bot en Lunafy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "punsbot.py"
+      - "start.py"
+      - "requirements.txt"
+      - "defaultpuns/**"
+  workflow_dispatch: # botón "Run workflow" para reiniciar a mano
+
+concurrency:
+  group: lunafy-restart
+  cancel-in-progress: true
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reiniciar servidor
+        env:
+          API_KEY: ${{ secrets.LUNAFY_API_KEY }}
+          SERVER: c7da29f8
+        run: |
+          if [ -z "$API_KEY" ]; then echo "::error::Falta el secreto LUNAFY_API_KEY"; exit 1; fi
+          restart() {
+            curl -s -o /dev/null -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $API_KEY" \
+              -H "Accept: application/json" -H "Content-Type: application/json" \
+              -d '{"signal":"restart"}' \
+              "https://panel.lunafy.run/api/client/servers/$SERVER/power"
+          }
+          code=$(restart); echo "Reinicio: HTTP $code"
+          [ "$code" = "204" ] || { echo "::error::Lunafy respondió $code"; exit 1; }
+          # Si cambian las dependencias, hace falta un segundo reinicio
+          # (se instalan antes de que start.py descargue el código nuevo).
+          if jq -r '.commits[]? | (.added + .modified)[]' "$GITHUB_EVENT_PATH" | grep -qx requirements.txt; then
+            sleep 60; code=$(restart); echo "Segundo reinicio: HTTP $code"
+          fi
