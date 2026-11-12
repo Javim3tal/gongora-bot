@@ -30,14 +30,18 @@ jobs:
         run: |
           if [ -z "$API_KEY" ]; then echo "::error::Falta el secreto LUNAFY_API_KEY"; exit 1; fi
           restart() {
-            curl -s -o /dev/null -w '%{http_code}' -X POST \
+            curl -s -o /tmp/resp -D /tmp/headers -w '%{http_code}' -X POST \
               -H "Authorization: Bearer $API_KEY" \
               -H "Accept: application/json" -H "Content-Type: application/json" \
               -d '{"signal":"restart"}' \
               "https://panel.lunafy.run/api/client/servers/$SERVER/power"
           }
           code=$(restart); echo "Reinicio: HTTP $code"
-          [ "$code" = "204" ] || { echo "::error::Lunafy respondió $code"; exit 1; }
+          if [ "$code" != "204" ]; then
+            grep -iE '^(location|server|cf-ray|cf-mitigated):' /tmp/headers || true
+            head -c 300 /tmp/resp; echo
+            echo "::error::Lunafy respondió $code"; exit 1
+          fi
           # Si cambian las dependencias, hace falta un segundo reinicio
           # (se instalan antes de que start.py descargue el código nuevo).
           if jq -r '.commits[]? | (.added + .modified)[]' "$GITHUB_EVENT_PATH" | grep -qx requirements.txt; then
