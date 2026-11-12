@@ -54,3 +54,15 @@ Añade el bot a tu grupo y escribe `/help`. Las rimas propias se añaden con
 
 Para añadir rimas por defecto para todos los grupos, edita `defaultpuns/punsfiles/spanishpuns`
 (una por línea, `disparador|rima`) y reinicia el bot.
+
+## Despliegue en Lunafy / Pterodactyl (actualización automática)
+
+El servidor arranca `start.py` (variable *App py file* en **Startup**). En cada arranque:
+
+1. descarga la última versión de la rama `main` de este repositorio,
+2. sobrescribe los archivos del bot **sin tocar** `.env` ni `data/`,
+3. ejecuta `punsbot.py`.
+
+Así, para publicar un cambio basta con hacer merge a `main` y pulsar **Restart** en el panel.
+Si cambias `requirements.txt`, reinicia dos veces (las dependencias se instalan antes de descargar).
+Para desactivarlo, pon `AUTO_UPDATE=0` en el `.env` del servidor.

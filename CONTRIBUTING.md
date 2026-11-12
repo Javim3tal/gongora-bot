@@ -25,3 +25,8 @@ disparador|rima
 3. Abre un Pull Request explicando qué cambia y cómo lo has probado.
 
 **Nunca subas tu `.env` ni tu token.** Ya están en `.gitignore`.
+
+## Cómo llega tu cambio al bot real
+
+El bot en producción descarga `main` cada vez que se reinicia. Lo que entra en `main`
+estará en el grupo en el siguiente reinicio, así que **prueba antes con tu bot de pruebas**.
