@@ -4,14 +4,17 @@
 Adaptación a Python 3 de https://github.com/morenod/punsBot (GPL-3.0),
 original de David Sanz, Karim Boumedhel y Raul Sevilla.
 """
+import datetime
 import os
 import random
 import re
 import sqlite3
 import string
+import threading
 import time
 import unicodedata
 import uuid
+from zoneinfo import ZoneInfo
 
 import telebot
 
@@ -31,12 +34,24 @@ def load_dotenv(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".
 
 load_dotenv()
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 BOT_NAME = os.environ.get("BOT_NAME", "PunsBot")
 REQUIRED_VALIDATIONS = int(os.environ.get("REQUIRED_VALIDATIONS", "5"))
 MAX_SILENCE_MINUTES = 60
-PUNS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "defaultpuns", "punsfiles")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PUNS_DIR = os.path.join(BASE_DIR, "defaultpuns", "punsfiles")
+
+# Mensaje diario: a DAILY_TIME (hora de TIMEZONE) envía una frase al azar de DAILY_FILE
+# a cada grupo que lo tenga activado. DAILY_TIME vacío lo desactiva del todo.
+DAILY_TIME = os.environ.get("DAILY_TIME", "05:30").strip()
+DAILY_FILE = os.path.join(BASE_DIR, "defaultpuns", "dailymessages")
+DAILY_WINDOW_MINUTES = 60  # si el bot arranca tarde, aún envía hasta 1 h después
+try:
+    TZ = ZoneInfo(os.environ.get("TIMEZONE", "Europe/Madrid"))
+except Exception as exc:  # sin datos de zonas horarias: hora del servidor
+    print("Aviso: zona horaria no disponible (%s); uso la hora del servidor" % exc)
+    TZ = None
 
 ALLOWED_CHARS_PUNS = string.ascii_letters + " " + string.digits + "áéíóúàèìòùäëïöüñ"
 ALLOWED_CHARS_TRIGGERS = ALLOWED_CHARS_PUNS + "^$.*+?(){}\\[]<>=-|"
@@ -128,6 +143,15 @@ def db_setup():
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS chatoptions (chatid int, silence int, efectivity int, unique (chatid))"
     )
+    # Grupos en los que está el bot (para el mensaje diario) y estado global
+    cursor.execute("CREATE TABLE IF NOT EXISTS chats (chatid int PRIMARY KEY, title text, daily int DEFAULT 1)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS meta (key text PRIMARY KEY, value text)")
+    # Grupos que ya usaban el bot antes de existir la tabla chats (ids de grupo < 0)
+    cursor.execute(
+        "INSERT OR IGNORE INTO chats(chatid) "
+        "SELECT chatid FROM puns WHERE chatid < 0 UNION SELECT chatid FROM validations WHERE chatid < 0 "
+        "UNION SELECT chatid FROM chatoptions WHERE chatid < 0"
+    )
     db.commit()
     db.close()
     for name in sorted(os.listdir(PUNS_DIR)):
@@ -176,6 +200,93 @@ def is_efective(chatid):
     return efectivity(chatid) >= random.randint(1, 100)
 
 
+def remember_chat(message):
+    """Apunta los grupos en los que está el bot (los chats privados no reciben el mensaje diario)."""
+    if message.chat.type not in ("group", "supergroup"):
+        return
+    db = connect()
+    db.execute("INSERT OR IGNORE INTO chats(chatid, title) VALUES(?, ?)", (message.chat.id, message.chat.title))
+    db.execute("UPDATE chats SET title = ? WHERE chatid = ?", (message.chat.title, message.chat.id))
+    db.commit()
+    db.close()
+
+
+def get_meta(key, default=None):
+    db = connect()
+    row = db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    db.close()
+    return row[0] if row else default
+
+
+def set_meta(key, value):
+    db = connect()
+    db.execute("INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)", (key, value))
+    db.commit()
+    db.close()
+
+
+def now_local():
+    return datetime.datetime.now(TZ) if TZ else datetime.datetime.now()
+
+
+def daily_messages():
+    if not os.path.isfile(DAILY_FILE):
+        return []
+    with open(DAILY_FILE, encoding="utf-8") as f:
+        return [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
+
+
+def daily_due(now, last_sent):
+    """¿Toca enviar? Solo dentro de la ventana [DAILY_TIME, +DAILY_WINDOW_MINUTES) y una vez al día."""
+    if not DAILY_TIME:
+        return False
+    hour, minute = (int(x) for x in DAILY_TIME.split(":"))
+    start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    in_window = start <= now < start + datetime.timedelta(minutes=DAILY_WINDOW_MINUTES)
+    return in_window and last_sent != now.date().isoformat()
+
+
+def send_daily(chatids=None):
+    """Envía una frase al azar a cada grupo activo (o a chatids). Devuelve cuántos envíos salieron bien."""
+    messages = daily_messages()
+    if not messages:
+        print("Mensaje diario: el archivo dailymessages está vacío")
+        return 0
+    if chatids is None:
+        db = connect()
+        chatids = [r[0] for r in db.execute("SELECT chatid FROM chats WHERE daily = 1").fetchall()]
+        db.close()
+    sent = 0
+    for chatid in chatids:
+        text = random.choice(messages)
+        try:
+            bot.send_message(chatid, text)
+            sent += 1
+        except telebot.apihelper.ApiTelegramException as exc:
+            print("Mensaje diario: no se pudo enviar a %s (%s)" % (chatid, exc.description))
+            if exc.error_code in (400, 403):  # el bot ya no está en el grupo
+                db = connect()
+                db.execute("UPDATE chats SET daily = 0 WHERE chatid = ?", (chatid,))
+                db.commit()
+                db.close()
+        except Exception as exc:
+            print("Mensaje diario: error enviando a %s: %s" % (chatid, exc))
+        time.sleep(0.1)
+    return sent
+
+
+def daily_loop():
+    while True:
+        try:
+            now = now_local()
+            if daily_due(now, get_meta("daily_last_sent")):
+                set_meta("daily_last_sent", now.date().isoformat())  # antes de enviar: nunca duplica
+                print("Mensaje diario enviado a %s grupos" % send_daily())
+        except Exception as exc:
+            print("Mensaje diario: error inesperado: %s" % exc)
+        time.sleep(30)
+
+
 def find_pun(message):
     words = "".join(c for c in message.text.lower() if c in ALLOWED_CHARS_PUNS).split()
     if not words:
@@ -217,9 +328,11 @@ def cmd_help(message):
         "/punban uuid  -1 a una rima\n"
         "/punsilence minutos  Silencia el bot (máx. %(max)s)\n"
         "/punset 1-100  Probabilidad de responder\n"
+        "/pundaily on|off  Mensaje diario de las %(daily)s\n"
         "/punshelp  Esta ayuda (/help)\n\n"
         "Silenciado hasta: %(until)s\n"
-        "Probabilidad de responder: %(eff)s%%\n\n"
+        "Probabilidad de responder: %(eff)s%%\n"
+        "Mensaje diario: %(daily_state)s\n\n"
         "Las rimas nuevas se activan con karma %(req)s en grupos de %(req)s o más personas; "
         "en grupos más pequeños basta con karma positivo.\n\n"
         "Versión %(ver)s"
@@ -228,6 +341,8 @@ def cmd_help(message):
         "max": MAX_SILENCE_MINUTES,
         "until": silence_until(message.chat.id),
         "eff": efectivity(message.chat.id),
+        "daily": DAILY_TIME or "--:--",
+        "daily_state": "activado" if daily_enabled(message.chat.id) else "desactivado",
         "req": REQUIRED_VALIDATIONS,
         "ver": VERSION,
     }
@@ -400,6 +515,40 @@ def cmd_start(message):
     bot.reply_to(message, "¡Vamos a hacer rimas! Usa /punshelp para ver la ayuda")
 
 
+def daily_enabled(chatid):
+    if not DAILY_TIME:
+        return False
+    db = connect()
+    row = db.execute("SELECT daily FROM chats WHERE chatid = ?", (chatid,)).fetchone()
+    db.close()
+    return bool(row and row[0])
+
+
+def cmd_daily(message):
+    if message.chat.type not in ("group", "supergroup"):
+        bot.reply_to(message, "El mensaje diario solo funciona en grupos")
+        return
+    if not DAILY_TIME:
+        bot.reply_to(message, "El mensaje diario está desactivado en este bot")
+        return
+    arg = get_args(message).lower()
+    chatid = message.chat.id
+    if arg in ("on", "off"):
+        db = connect()
+        db.execute("UPDATE chats SET daily = ? WHERE chatid = ?", (1 if arg == "on" else 0, chatid))
+        db.commit()
+        db.close()
+    elif arg == "test":
+        if not send_daily([chatid]):
+            bot.reply_to(message, "No hay mensajes en defaultpuns/dailymessages")
+        return
+    elif arg:
+        bot.reply_to(message, "Uso: /pundaily on | off | test")
+        return
+    state = "activado" if daily_enabled(chatid) else "desactivado"
+    bot.reply_to(message, "Mensaje diario de las %s: %s" % (DAILY_TIME, state))
+
+
 def on_text(message):
     chatid = message.chat.id
     if is_chat_silenced(chatid) or not is_efective(chatid):
@@ -409,18 +558,45 @@ def on_text(message):
         bot.reply_to(message, rima)
 
 
+def on_added(message):
+    """Si el que entra es el propio bot (o se crea el grupo con él), reactiva el mensaje diario."""
+    me = bot.get_me().id
+    if message.content_type != "new_chat_members" or any(u.id == me for u in message.new_chat_members):
+        db = connect()
+        db.execute("UPDATE chats SET daily = 1 WHERE chatid = ?", (message.chat.id,))
+        db.commit()
+        db.close()
+
+
+def remembering(handler):
+    """Envuelve un handler para apuntar el grupo antes de procesar el mensaje."""
+    def wrapper(message):
+        try:
+            remember_chat(message)
+        except Exception as exc:
+            print("No se pudo apuntar el chat %s: %s" % (message.chat.id, exc))
+        handler(message)
+    return wrapper
+
+
 def register_handlers():
-    bot.register_message_handler(cmd_help, commands=["punshelp", "help"])
-    bot.register_message_handler(cmd_approve, commands=["punapprove"])
-    bot.register_message_handler(cmd_ban, commands=["punban"])
-    bot.register_message_handler(cmd_add, commands=["punadd"])
-    bot.register_message_handler(cmd_delete, commands=["pundel"])
-    bot.register_message_handler(cmd_silence, commands=["punsilence"])
-    bot.register_message_handler(cmd_set, commands=["punset"])
-    bot.register_message_handler(cmd_list, commands=["list", "punlist", "punslist"])
-    bot.register_message_handler(cmd_start, commands=["start"])
+    def on(handler, **kwargs):
+        bot.register_message_handler(remembering(handler), **kwargs)
+
+    on(cmd_help, commands=["punshelp", "help"])
+    on(cmd_approve, commands=["punapprove"])
+    on(cmd_ban, commands=["punban"])
+    on(cmd_add, commands=["punadd"])
+    on(cmd_delete, commands=["pundel"])
+    on(cmd_silence, commands=["punsilence"])
+    on(cmd_set, commands=["punset"])
+    on(cmd_list, commands=["list", "punlist", "punslist"])
+    on(cmd_daily, commands=["pundaily"])
+    on(cmd_start, commands=["start"])
     # Mensajes de texto normales (no comandos)
-    bot.register_message_handler(on_text, func=lambda m: m.text and not m.text.startswith("/"))
+    on(on_text, func=lambda m: m.text and not m.text.startswith("/"))
+    # Al añadir el bot a un grupo, apuntarlo ya (sin esperar a que alguien escriba)
+    on(on_added, content_types=["new_chat_members", "group_chat_created", "supergroup_chat_created"])
 
 
 def main():
@@ -434,6 +610,9 @@ def main():
     db_setup()
     bot = telebot.TeleBot(os.environ["TOKEN"])
     register_handlers()
+    if DAILY_TIME:
+        threading.Thread(target=daily_loop, daemon=True).start()
+        print("Mensaje diario programado a las %s (%s)" % (DAILY_TIME, TZ or "hora del servidor"))
     print("%s %s listo para rimar" % (BOT_NAME, VERSION))
     bot.infinity_polling(skip_pending=True)
 

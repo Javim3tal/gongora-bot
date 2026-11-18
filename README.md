@@ -55,6 +55,18 @@ Añade el bot a tu grupo y escribe `/help`. Las rimas propias se añaden con
 Para añadir rimas por defecto para todos los grupos, edita `defaultpuns/punsfiles/spanishpuns`
 (una por línea, `disparador|rima`) y reinicia el bot.
 
+## Mensaje diario
+
+Cada día a las **05:30 (hora de Madrid)** el bot envía a cada grupo una frase al azar de
+`defaultpuns/dailymessages` (una por línea; las que empiezan por `#` se ignoran).
+
+- `/pundaily off` / `/pundaily on`: desactivarlo o activarlo en el grupo.
+- `/pundaily test`: envía uno ahora para probar.
+- La hora y la zona se cambian con `DAILY_TIME` y `TIMEZONE` en el `.env`; `DAILY_TIME=` vacío lo apaga.
+- Solo se envía una vez al día aunque el bot se reinicie. Si a las 05:30 estaba parado, lo envía
+  al arrancar si aún no son las 06:30; más tarde, ese día se lo salta.
+- El bot conoce un grupo cuando alguien escribe en él o cuando lo añaden.
+
 ## Despliegue en Lunafy / Pterodactyl (actualización automática)
 
 El servidor arranca `start.py` (variable *App py file* en **Startup**). En cada arranque:
@@ -64,5 +76,5 @@ El servidor arranca `start.py` (variable *App py file* en **Startup**). En cada 
 3. ejecuta `punsbot.py`.
 
 Así, para publicar un cambio basta con hacer merge a `main` y pulsar **Restart** en el panel.
-Si cambias `requirements.txt`, reinicia dos veces (las dependencias se instalan antes de descargar).
+Si cambia `requirements.txt`, `start.py` instala las dependencias nuevas al arrancar.
 Para desactivarlo, pon `AUTO_UPDATE=0` en el `.env` del servidor.

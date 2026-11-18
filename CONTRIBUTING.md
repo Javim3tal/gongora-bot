@@ -14,6 +14,10 @@ disparador|rima
 - Admite expresiones regulares: `^.*ado$|el que tengo aquí colgado`.
 - Si varias rimas coinciden, el bot elige una al azar.
 
+## Mensajes diarios
+
+Edita `defaultpuns/dailymessages`: una frase por línea. El bot envía una al azar cada día a las 05:30.
+
 ## Cambios en el código
 
 1. Haz un fork y crea una rama: `git checkout -b mi-mejora`.

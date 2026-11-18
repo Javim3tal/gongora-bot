@@ -65,10 +65,29 @@ def update(repo, branch):
     print("Actualizado a %s (%d archivos)" % (commit[:7], count))
 
 
+def read_requirements():
+    path = os.path.join(BASE, "requirements.txt")
+    return open(path, encoding="utf-8").read() if os.path.isfile(path) else ""
+
+
+def install_requirements():
+    """Instala las dependencias igual que el panel (pip --prefix .local) si han cambiado."""
+    import subprocess
+    print("requirements.txt ha cambiado: instalando dependencias...")
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "-U", "--prefix", os.path.join(BASE, ".local"),
+         "-r", os.path.join(BASE, "requirements.txt")]
+    )
+    print("Dependencias instaladas" if result.returncode == 0 else "Fallo instalando dependencias")
+
+
 def main():
     env = read_env()
     if env.get("AUTO_UPDATE", "1") != "0":
+        before = read_requirements()
         update(env.get("UPDATE_REPO", "Javim3tal/gongora-bot"), env.get("UPDATE_BRANCH", "main"))
+        if read_requirements() != before:
+            install_requirements()
     bot = os.path.join(BASE, "punsbot.py")
     os.execv(sys.executable, [sys.executable, "-u", bot])
 
