@@ -1,4 +1,5 @@
-# Mensajes del aviso diario (uno por línea). El bot elige uno al azar cada día.
+# Mensajes sorpresa de las 05:30 (uno por línea). Algunos días al azar (DAILY_PROBABILITY,
+# por defecto 30 %) el bot envía uno de ellos, también elegido al azar.
 # Las líneas que empiezan por # se ignoran.
 Son las 5:30. Arriba, panda de vagos, que el sol no espera.
 Buenos días. Yo ya llevo un rato despierto rimando, ¿y vosotros?

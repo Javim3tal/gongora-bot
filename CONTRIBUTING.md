@@ -16,7 +16,7 @@ disparador|rima
 
 ## Mensajes diarios
 
-Edita `defaultpuns/dailymessages`: una frase por línea. El bot envía una al azar cada día a las 05:30.
+Edita `defaultpuns/dailymessages`: una frase por línea. Algunos días al azar, a las 05:30, el bot envía una de ellas.
 
 ## Cambios en el código
 

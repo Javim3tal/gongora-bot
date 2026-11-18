@@ -55,15 +55,16 @@ Añade el bot a tu grupo y escribe `/help`. Las rimas propias se añaden con
 Para añadir rimas por defecto para todos los grupos, edita `defaultpuns/punsfiles/spanishpuns`
 (una por línea, `disparador|rima`) y reinicia el bot.
 
-## Mensaje diario
+## Mensaje sorpresa de las 05:30
 
-Cada día a las **05:30 (hora de Madrid)** el bot envía a cada grupo una frase al azar de
+No sale todos los días: cada día a las **05:30 (hora de Madrid)** se sortea, grupo a grupo, si toca
+(por defecto un **30 %** de los días, `DAILY_PROBABILITY`). Si toca, el bot envía una frase al azar de
 `defaultpuns/dailymessages` (una por línea; las que empiezan por `#` se ignoran).
 
 - `/pundaily off` / `/pundaily on`: desactivarlo o activarlo en el grupo.
 - `/pundaily test`: envía uno ahora para probar.
 - La hora y la zona se cambian con `DAILY_TIME` y `TIMEZONE` en el `.env`; `DAILY_TIME=` vacío lo apaga.
-- Solo se envía una vez al día aunque el bot se reinicie. Si a las 05:30 estaba parado, lo envía
+- El sorteo es una vez al día: reiniciar el bot no da otra oportunidad. Si a las 05:30 estaba parado, lo envía
   al arrancar si aún no son las 06:30; más tarde, ese día se lo salta.
 - El bot conoce un grupo cuando alguien escribe en él o cuando lo añaden.
 

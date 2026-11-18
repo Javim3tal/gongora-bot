@@ -47,6 +47,8 @@ PUNS_DIR = os.path.join(BASE_DIR, "defaultpuns", "punsfiles")
 DAILY_TIME = os.environ.get("DAILY_TIME", "05:30").strip()
 DAILY_FILE = os.path.join(BASE_DIR, "defaultpuns", "dailymessages")
 DAILY_WINDOW_MINUTES = 60  # si el bot arranca tarde, aún envía hasta 1 h después
+# Probabilidad (%) de que un grupo reciba el mensaje un día concreto: no sale todos los días.
+DAILY_PROBABILITY = max(0, min(100, int(os.environ.get("DAILY_PROBABILITY", "30"))))
 try:
     TZ = ZoneInfo(os.environ.get("TIMEZONE", "Europe/Madrid"))
 except Exception as exc:  # sin datos de zonas horarias: hora del servidor
@@ -246,8 +248,9 @@ def daily_due(now, last_sent):
     return in_window and last_sent != now.date().isoformat()
 
 
-def send_daily(chatids=None):
-    """Envía una frase al azar a cada grupo activo (o a chatids). Devuelve cuántos envíos salieron bien."""
+def send_daily(chatids=None, probability=100):
+    """Envía una frase al azar a cada grupo activo (o a chatids), cada uno con `probability` % de
+    posibilidades. Devuelve cuántos envíos salieron bien."""
     messages = daily_messages()
     if not messages:
         print("Mensaje diario: el archivo dailymessages está vacío")
@@ -258,6 +261,8 @@ def send_daily(chatids=None):
         db.close()
     sent = 0
     for chatid in chatids:
+        if random.randint(1, 100) > probability:
+            continue  # hoy no le toca a este grupo
         text = random.choice(messages)
         try:
             bot.send_message(chatid, text)
@@ -281,7 +286,8 @@ def daily_loop():
             now = now_local()
             if daily_due(now, get_meta("daily_last_sent")):
                 set_meta("daily_last_sent", now.date().isoformat())  # antes de enviar: nunca duplica
-                print("Mensaje diario enviado a %s grupos" % send_daily())
+                # El sorteo se hace una vez al día: reiniciar no da otra oportunidad
+                print("Mensaje diario (%s%%): enviado a %s grupos" % (DAILY_PROBABILITY, send_daily(probability=DAILY_PROBABILITY)))
         except Exception as exc:
             print("Mensaje diario: error inesperado: %s" % exc)
         time.sleep(30)
@@ -328,7 +334,7 @@ def cmd_help(message):
         "/punban uuid  -1 a una rima\n"
         "/punsilence minutos  Silencia el bot (máx. %(max)s)\n"
         "/punset 1-100  Probabilidad de responder\n"
-        "/pundaily on|off  Mensaje diario de las %(daily)s\n"
+        "/pundaily on|off  Mensaje sorpresa de las %(daily)s\n"
         "/punshelp  Esta ayuda (/help)\n\n"
         "Silenciado hasta: %(until)s\n"
         "Probabilidad de responder: %(eff)s%%\n"
@@ -342,7 +348,7 @@ def cmd_help(message):
         "until": silence_until(message.chat.id),
         "eff": efectivity(message.chat.id),
         "daily": DAILY_TIME or "--:--",
-        "daily_state": "activado" if daily_enabled(message.chat.id) else "desactivado",
+        "daily_state": daily_state(message.chat.id),
         "req": REQUIRED_VALIDATIONS,
         "ver": VERSION,
     }
@@ -545,8 +551,13 @@ def cmd_daily(message):
     elif arg:
         bot.reply_to(message, "Uso: /pundaily on | off | test")
         return
-    state = "activado" if daily_enabled(chatid) else "desactivado"
-    bot.reply_to(message, "Mensaje diario de las %s: %s" % (DAILY_TIME, state))
+    bot.reply_to(message, "Mensaje sorpresa de las %s: %s" % (DAILY_TIME, daily_state(chatid)))
+
+
+def daily_state(chatid):
+    if not daily_enabled(chatid):
+        return "desactivado"
+    return "activado (sale al azar, un %s%% de los días)" % DAILY_PROBABILITY
 
 
 def on_text(message):
