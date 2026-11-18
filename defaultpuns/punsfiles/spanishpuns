@@ -95,8 +95,8 @@ ojala|Dato curioso: "Ojalá" tiene origen árabe y lleva siglos viajando entre c
 ^.*papa$|Mis cojones con zurrapa
 ^.*aya$|Bocadillo de caballa
 ^.*alla$|Bocadillo de caballa
-^.*que?$|Mi gran cipotón!
-^.*ero?$|Vente, vente conmino al trastero...
+^.*que$|Mi gran cipotón!
+^.*ero$|Vente, vente conmigo al trastero...
 
 
 
